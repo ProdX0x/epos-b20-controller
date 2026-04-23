@@ -1,0 +1,34 @@
+{
+  "name": "epos-b20-controller",
+  "version": "1.0.0",
+  "main": "main.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "electron ."
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "node-hid": "^3.3.0"
+  },
+  "devDependencies": {
+    "electron": "^36.2.1",
+    "electron-builder": "^26.8.1"
+  },
+  "build": {
+    "appId": "com.prodx0x.epos-b20",
+    "productName": "EPOS B20",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "target": "dmg",
+      "entitlements": "entitlements.mac.plist",
+      "entitlementsInherit": "entitlements.mac.plist",
+      "icon": "icon.icns"
+    },
+    "directories": {
+      "output": "dist"
+    }
+  }
+}

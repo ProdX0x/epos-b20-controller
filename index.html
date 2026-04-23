@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>B20 Control</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, sans-serif; background: #1a1a1a; color: #fff; padding: 40px 30px 30px; user-select: none; transition: opacity 0.3s; }
+    body.disconnected { opacity: 0.4; pointer-events: none; }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+    .subtitle { color: #555; font-size: 12px; margin-bottom: 30px; }
+    .card { background: #242424; border-radius: 14px; padding: 18px 22px; margin-bottom: 12px; }
+    .card-label { font-size: 10px; text-transform: uppercase; color: #555; letter-spacing: 1.2px; margin-bottom: 8px; }
+    .card-value { font-size: 28px; font-weight: 700; }
+    .muted { color: #ff453a; }
+    .active { color: #30d158; }
+    .bar-container { background: #333; border-radius: 6px; height: 8px; margin-top: 10px; overflow: hidden; }
+    .bar { height: 8px; border-radius: 6px; transition: width 0.08s ease; width: 0%; }
+    .bar.blue { background: #0a84ff; }
+    .bar.orange { background: #ff9f0a; }
+    .vu-container { display: flex; gap: 3px; margin-top: 10px; align-items: flex-end; height: 40px; }
+    .vu-bar { flex: 1; border-radius: 2px; background: #333; transition: height 0.05s ease; height: 4px; }
+    .pattern-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 6px; }
+    .pattern-btn { padding: 14px 10px; border-radius: 10px; background: #333; border: 2px solid transparent; color: #aaa; font-size: 12px; text-align: center; transition: all 0.15s; }
+    .pattern-btn.active { border-color: #0a84ff; background: #0a84ff18; color: #fff; }
+    .pattern-icon { font-size: 20px; margin-bottom: 4px; }
+    .mute-card { display: flex; align-items: center; justify-content: space-between; }
+    .mute-indicator { width: 14px; height: 14px; border-radius: 50%; background: #30d158; box-shadow: 0 0 8px #30d158; transition: all 0.2s; }
+    .mute-indicator.muted { background: #ff453a; box-shadow: 0 0 8px #ff453a; animation: pulse 1s infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+    .history { margin-top: 8px; max-height: 80px; overflow-y: auto; }
+    .history-item { font-size: 11px; color: #444; padding: 2px 0; border-bottom: 1px solid #2a2a2a; }
+    .history-item span { color: #666; }
+    .status { font-size: 11px; color: #333; text-align: center; margin-top: 16px; }
+    .serial { font-size: 10px; color: #333; text-align: center; margin-top: 4px; }
+    .disconnected-banner { display: none; background: #ff453a22; border: 1px solid #ff453a44; border-radius: 10px; padding: 12px 16px; margin-bottom: 12px; font-size: 13px; color: #ff453a; text-align: center; }
+    .disconnected-banner.visible { display: block; }
+    .vu-level { font-size: 12px; color: #555; margin-top: 6px; }
+  </style>
+</head>
+<body>
+  <h1>B20 Control</h1>
+  <p class="subtitle">Contrôleur en temps réel</p>
+
+  <div class="disconnected-banner" id="disconnected-banner">
+    ⚠️ EPOS B20 déconnecté — vérifiez le câble USB
+  </div>
+
+  <div class="card">
+    <div class="mute-card">
+      <div>
+        <div class="card-label">Statut micro</div>
+        <div class="card-value active" id="mute-status">ACTIF</div>
+      </div>
+      <div class="mute-indicator" id="mute-dot"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Niveau audio en temps réel</div>
+    <div class="vu-container" id="vu-container"></div>
+    <div class="vu-level" id="vu-level">En attente...</div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Gain micro</div>
+    <div class="card-value" id="gain-value">—</div>
+    <div class="bar-container"><div class="bar orange" id="gain-bar"></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Volume casque</div>
+    <div class="card-value" id="volume-value">50%</div>
+    <div class="bar-container"><div class="bar blue" id="volume-bar" style="width:50%"></div></div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Pattern pickup</div>
+    <div class="pattern-hint" id="pattern-hint" style="font-size:11px;color:#555;margin-bottom:8px;">Bougez le sélecteur pour détecter</div>
+    <div class="pattern-grid">
+      <div class="pattern-btn" id="p1"><div class="pattern-icon">🎙</div>Cardioid</div>
+      <div class="pattern-btn" id="p2"><div class="pattern-icon">🎵</div>Stéréo</div>
+      <div class="pattern-btn" id="p3"><div class="pattern-icon">↔</div>Bidirectionnel</div>
+      <div class="pattern-btn" id="p4"><div class="pattern-icon">⭕</div>Omnidirectionnel</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-label">Historique</div>
+    <div class="history" id="history"></div>
+  </div>
+
+  <p class="status" id="status">En attente du B20...</p>
+  <p class="serial" id="serial"></p>
+
+  <script>
+    const { ipcRenderer } = require('electron');
+    const history = [];
+    let isMuted = false;
+
+    // VU-mètre
+    const vuContainer = document.getElementById('vu-container');
+    const numBars = 30;
+    const bars = [];
+
+    for (let i = 0; i < numBars; i++) {
+      const bar = document.createElement('div');
+      bar.className = 'vu-bar';
+      vuContainer.appendChild(bar);
+      bars.push(bar);
+    }
+
+    function getBarColor(index, total) {
+      const pct = index / total;
+      if (pct < 0.6) return '#30d158';
+      if (pct < 0.85) return '#ff9f0a';
+      return '#ff453a';
+    }
+
+    bars.forEach((bar, i) => {
+      bar.style.background = getBarColor(i, numBars);
+      bar.style.opacity = '0.2';
+    });
+
+    async function startVU() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: 'default' } });
+        const audioCtx = new AudioContext();
+        const source = audioCtx.createMediaStreamSource(stream);
+        const analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        function draw() {
+          requestAnimationFrame(draw);
+          analyser.getByteFrequencyData(dataArray);
+          const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+          const level = isMuted ? 0 : Math.min(avg / 50, 1);
+          const activeBars = Math.round(level * numBars);
+
+          bars.forEach((bar, i) => {
+            const height = 4 + (i < activeBars ? (i / numBars) * 36 : 0);
+            bar.style.height = height + 'px';
+            bar.style.opacity = i < activeBars ? '1' : '0.15';
+          });
+
+          const db = avg > 0 ? Math.round(20 * Math.log10(avg / 128)) : -60;
+          document.getElementById('vu-level').textContent = isMuted ? 'Muté' : (db > -60 ? db + ' dB' : 'Silence');
+        }
+
+        draw();
+      } catch(e) {
+        document.getElementById('vu-level').textContent = 'Accès micro refusé';
+      }
+    }
+
+    startVU();
+
+    function addHistory(text) {
+      const now = new Date().toLocaleTimeString('fr-FR');
+      history.unshift({ time: now, text });
+      if (history.length > 10) history.pop();
+      document.getElementById('history').innerHTML = history.map(h =>
+        '<div class="history-item"><span>' + h.time + '</span> — ' + h.text + '</div>'
+      ).join('');
+    }
+
+    ipcRenderer.on('b20-connected', (e, info) => {
+      document.body.classList.remove('disconnected');
+      document.getElementById('disconnected-banner').classList.remove('visible');
+      document.getElementById('status').textContent = 'B20 Control v1.0.0';
+      document.getElementById('serial').textContent = 'N/S : ' + info.serial;
+      addHistory('🟢 B20 connecté');
+    });
+
+    ipcRenderer.on('b20-disconnected', () => {
+      document.body.classList.add('disconnected');
+      document.getElementById('disconnected-banner').classList.add('visible');
+      addHistory('⚠️ B20 déconnecté');
+    });
+
+    ipcRenderer.on('b20-event', (e, event) => {
+      document.getElementById('status').textContent = 'B20 Control v1.0.0';
+
+      if (event.type === 'mute') {
+        isMuted = event.value;
+        const el = document.getElementById('mute-status');
+        const dot = document.getElementById('mute-dot');
+        el.textContent = event.value ? 'MUTÉ' : 'ACTIF';
+        el.className = 'card-value ' + (event.value ? 'muted' : 'active');
+        dot.className = 'mute-indicator' + (event.value ? ' muted' : '');
+        addHistory(event.value ? '🔴 Micro muté' : '🟢 Micro actif');
+      }
+
+      if (event.type === 'gain') {
+        document.getElementById('gain-value').textContent = event.pct + '%';
+        document.getElementById('gain-bar').style.width = event.pct + '%';
+        addHistory('Gain : ' + event.pct + '%');
+      }
+
+      if (event.type === 'volume') {
+        document.getElementById('volume-value').textContent = event.value + '%';
+        document.getElementById('volume-bar').style.width = event.value + '%';
+        addHistory('Volume casque : ' + event.value + '%');
+      }
+
+      if (event.type === 'pattern') {
+        [1,2,3,4].forEach(i => document.getElementById('p'+i).className = 'pattern-btn');
+        document.getElementById('p'+event.value).className = 'pattern-btn active';
+        const hint = document.getElementById('pattern-hint');
+        if (hint) hint.style.display = 'none';
+        addHistory('Pattern : ' + event.label);
+      }
+    });
+
+    ipcRenderer.on('b20-error', (e, msg) => {
+      document.getElementById('status').textContent = 'Erreur : ' + msg;
+    });
+  </script>
+</body>
+</html>
